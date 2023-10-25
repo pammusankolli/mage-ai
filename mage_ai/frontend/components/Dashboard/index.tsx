@@ -26,22 +26,26 @@ import { useWindowSize } from '@utils/sizes';
 
 export type DashboardSharedProps = {
   after?: any;
+  afterHeader?: any;
   afterHidden?: boolean;
   afterWidth?: number;
   afterWidthOverride?: boolean;
   before?: any;
   beforeWidth?: number;
+  setAfterHidden?: (value: boolean) => void;
   subheaderNoPadding?: boolean;
   uuid: string;
 };
 
 type DashboardProps = {
   addProjectBreadcrumbToCustomBreadcrumbs?: boolean;
+  appendBreadcrumbs?: boolean;
   breadcrumbs?: BreadcrumbType[];
   children?: any;
   errors?: ErrorsType;
   headerMenuItems?: MenuItemType[];
   headerOffset?: number;
+  hideAfterCompletely?: boolean;
   mainContainerHeader?: any;
   setErrors?: (errors: ErrorsType) => void;
   subheaderChildren?: any;
@@ -51,9 +55,11 @@ type DashboardProps = {
 function Dashboard({
   addProjectBreadcrumbToCustomBreadcrumbs,
   after,
+  afterHeader,
   afterHidden,
   afterWidth: afterWidthProp,
   afterWidthOverride,
+  appendBreadcrumbs,
   before,
   beforeWidth: beforeWidthProp,
   breadcrumbs: breadcrumbsProp,
@@ -61,8 +67,10 @@ function Dashboard({
   errors,
   headerMenuItems,
   headerOffset,
+  hideAfterCompletely,
   mainContainerHeader,
   navigationItems,
+  setAfterHidden,
   setErrors,
   subheaderChildren,
   subheaderNoPadding,
@@ -107,14 +115,16 @@ function Dashboard({
     }
 
     breadcrumbs.push(...breadcrumbsProp);
-  } else if (projects?.length >= 1) {
-    breadcrumbs.push(...[
-      breadcrumbProject,
-      {
-        bold: true,
+  }
+
+  if ((!breadcrumbsProp?.length || appendBreadcrumbs) && projects?.length >= 1) {
+    if (!breadcrumbsProp?.length) {
+      breadcrumbs.unshift({
+        bold: !appendBreadcrumbs,
         label: () => title,
-      },
-    ]);
+      });
+    }
+    breadcrumbs.unshift(breadcrumbProject);
   }
 
   useEffect(() => {
@@ -191,6 +201,7 @@ function Dashboard({
           {/* @ts-ignore */}
           <TripleLayout
             after={after}
+            afterHeader={afterHeader}
             afterHeightOffset={HEADER_HEIGHT}
             afterHidden={afterHidden}
             afterMousedownActive={afterMousedownActive}
@@ -200,10 +211,11 @@ function Dashboard({
             beforeMousedownActive={beforeMousedownActive}
             beforeWidth={VERTICAL_NAVIGATION_WIDTH + (before ? beforeWidth : 0)}
             headerOffset={headerOffset}
-            hideAfterCompletely
+            hideAfterCompletely={!setAfterHidden || hideAfterCompletely}
             leftOffset={before ? VERTICAL_NAVIGATION_WIDTH : null}
             mainContainerHeader={mainContainerHeader}
             mainContainerRef={mainContainerRef}
+            setAfterHidden={setAfterHidden}
             setAfterMousedownActive={setAfterMousedownActive}
             setAfterWidth={setAfterWidth}
             setBeforeMousedownActive={setBeforeMousedownActive}

@@ -26,7 +26,9 @@ from mage_ai.api.operations.constants import (
 from mage_ai.api.parsers.BaseParser import BaseParser
 from mage_ai.api.presenters.BasePresenter import CustomDict, CustomList
 from mage_ai.api.result_set import ResultSet
+from mage_ai.orchestration.db import db_connection
 from mage_ai.orchestration.db.errors import DoesNotExistError
+from mage_ai.settings import REQUIRE_USER_PERMISSIONS
 from mage_ai.shared.array import flatten
 from mage_ai.shared.hash import ignore_keys, merge_dict
 from mage_ai.shared.strings import classify
@@ -46,7 +48,7 @@ class BaseOperation():
         self.oauth_client = kwargs.get('oauth_client')
         self.oauth_token = kwargs.get('oauth_token')
         self.options = kwargs.get('options', {})
-        self.payload = kwargs.get('payload', {})
+        self.payload = kwargs.get('payload') or {}
         self._query = kwargs.get('query', {}) or {}
         self.resource = kwargs.get('resource')
         self.resource_parent = kwargs.get('resource_parent')
@@ -58,6 +60,8 @@ class BaseOperation():
         self.__updated_options_attr = None
 
     async def execute(self):
+        db_connection.start_cache()
+
         response = {}
         try:
             already_validated = False
@@ -170,13 +174,20 @@ class BaseOperation():
                 }
         except ApiError as err:
             if err.code == 403 and \
-                    self.user and self.user.project_access == 0 and not self.user.roles:
-                err.message = 'You do not have access to this project. ' + \
-                    'Please ask an admin or owner for permissions.'
+                    self.user and \
+                    self.user.project_access == 0 and \
+                    not self.user.roles:
+
+                if not REQUIRE_USER_PERMISSIONS:
+                    err.message = 'You don’t have access to this project. ' + \
+                        'Please ask an admin or owner for permissions.'
             if settings.DEBUG:
                 raise err
             else:
                 response['error'] = self.__present_error(err)
+
+        db_connection.stop_cache()
+
         return response
 
     @property
@@ -187,7 +198,7 @@ class BaseOperation():
         query = {}
         for key, values in self._query.items():
             query[key] = values
-            if type(values) is list:
+            if isinstance(values, list):
                 arr = []
                 for v in values:
                     try:
@@ -255,11 +266,19 @@ class BaseOperation():
             return await self.__resource_class().process_create(
                 payload,
                 self.user,
+                result_set_from_external=policy.result_set(),
                 **options,
             )
         elif LIST == self.action:
-            def _build_authorize_query(parsed_value: Any, policy=policy) -> Callable:
-                return policy.authorize_query(parsed_value)
+            def _build_authorize_query(
+                parsed_value: Any,
+                policy=policy,
+                updated_options=updated_options,
+                **_kwargs,
+            ) -> Callable:
+                return policy.authorize_query(parsed_value, **ignore_keys(updated_options, [
+                    'query',
+                ]))
 
             if parser:
                 value_parsed, parser_found, error = await parser.parse_query_and_authorize(
@@ -279,6 +298,7 @@ class BaseOperation():
                 self.query,
                 self.meta,
                 self.user,
+                result_set_from_external=policy.result_set(),
                 **options,
             )
 
@@ -307,8 +327,15 @@ class BaseOperation():
         if DELETE == self.action:
             await res.process_delete(**updated_options)
         elif DETAIL == self.action:
-            def _build_authorize_query(parsed_value: Any, policy=policy) -> Callable:
-                return policy.authorize_query(parsed_value)
+            def _build_authorize_query(
+                parsed_value: Any,
+                policy=policy,
+                updated_options=updated_options,
+                **_kwargs,
+            ) -> Callable:
+                return policy.authorize_query(parsed_value, **ignore_keys(updated_options, [
+                    'query',
+                ]))
 
             if parser:
                 value_parsed, parser_found, error = await parser.parse_query_and_authorize(
@@ -327,7 +354,9 @@ class BaseOperation():
                             **merge_dict(updated_options, dict(query=self.query)),
                         )
                         policy = self.__policy_class()(res, self.user, **updated_options)
-                        await policy.authorize_query(self.query)
+                        await policy.authorize_query(self.query, **ignore_keys(updated_options, [
+                            'query',
+                        ]))
                     else:
                         raise error
             else:
@@ -351,8 +380,15 @@ class BaseOperation():
             else:
                 await _build_authorize_attributes(payload)
 
-            def _build_authorize_query(parsed_value: Any, policy=policy) -> Callable:
-                return policy.authorize_query(parsed_value)
+            def _build_authorize_query(
+                parsed_value: Any,
+                policy=policy,
+                updated_options=updated_options,
+                **_kwargs,
+            ) -> Callable:
+                return policy.authorize_query(parsed_value, **ignore_keys(updated_options, [
+                    'query',
+                ]))
 
             if parser:
                 value_parsed, parser_found, error = await parser.parse_query_and_authorize(
@@ -362,7 +398,7 @@ class BaseOperation():
                 )
                 self.query = value_parsed
             else:
-                await _build_authorize_query(self.query)
+                await _build_authorize_query(self.query, **updated_options)
 
             options = merge_dict(updated_options.copy(), dict(query=self.query))
             options.pop('payload', None)
@@ -500,7 +536,7 @@ class BaseOperation():
 
     def __presentation_format(self):
         if not self.__presentation_format_attr:
-            self.__presentation_format_attr = self.meta.get(
+            self.__presentation_format_attr = (self.meta or {}).get(
                 META_KEY_FORMAT, self.action)
         return self.__presentation_format_attr
 

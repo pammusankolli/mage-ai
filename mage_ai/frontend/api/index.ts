@@ -65,6 +65,7 @@ export const MONITOR_STATS = 'monitor_stats';
 export const OAUTHS = 'oauths';
 export const OUTPUTS = 'outputs';
 export const PAGE_BLOCK_LAYOUTS: 'page_block_layouts' = 'page_block_layouts';
+export const PERMISSIONS: 'permissions' = 'permissions';
 export const PIPELINES: 'pipelines' = 'pipelines';
 export const PIPELINE_INTERACTIONS: 'pipeline_interactions' = 'pipeline_interactions';
 export const PIPELINE_RUNS: 'pipeline_runs' = 'pipeline_runs';
@@ -75,7 +76,18 @@ export const PROJECTS: 'projects' = 'projects';
 export const ROLES: 'roles' = 'roles';
 export const SEARCH_RESULTS: 'search_results' = 'search_results';
 export const SECRETS: 'secrets' = 'secrets';
+export const SEEDS: 'seeds' = 'seeds';
 export const SESSIONS: 'sessions' = 'sessions';
+export const SPARK_APPLICATIONS: 'spark_applications' = 'spark_applications';
+export const SPARK_ENVIRONMENTS: 'spark_environments' = 'spark_environments';
+export const SPARK_EXECUTORS: 'spark_executors' = 'spark_executors';
+export const SPARK_JOBS: 'spark_jobs' = 'spark_jobs';
+export const SPARK_SQLS: 'spark_sqls' = 'spark_sqls';
+export const SPARK_STAGES: 'spark_stages' = 'spark_stages';
+export const SPARK_STAGE_ATTEMPTS: 'spark_stage_attempts' = 'spark_stage_attempts';
+export const SPARK_STAGE_ATTEMPT_TASKS: 'spark_stage_attempt_tasks' = 'spark_stage_attempt_tasks';
+export const SPARK_STAGE_ATTEMPT_TASK_SUMMARYS: 'spark_stage_attempt_task_summarys' = 'spark_stage_attempt_task_summarys';
+export const SPARK_THREADS: 'spark_threads' = 'spark_threads';
 export const STATUSES: 'statuses' = 'statuses';
 export const SYNCS: 'syncs' = 'syncs';
 export const TAGS: 'tags' = 'tags';
@@ -137,19 +149,31 @@ const RESOURCES: any[][] = [
   [OUTPUTS, PIPELINES],
   [OUTPUTS],
   [PAGE_BLOCK_LAYOUTS],
+  [PERMISSIONS],
   [PIPELINES],
   [PIPELINE_INTERACTIONS],
   [PIPELINE_RUNS, PIPELINE_SCHEDULES],
   [PIPELINE_RUNS],
-  [PIPELINE_SCHEDULES],
   [PIPELINE_SCHEDULES, PIPELINES],
+  [PIPELINE_SCHEDULES],
   [PIPELINE_TRIGGERS, PIPELINES],
   [PROJECTS],
   [PULL_REQUESTS],
   [ROLES],
   [SEARCH_RESULTS],
   [SECRETS],
+  [SEEDS],
   [SESSIONS],
+  [SPARK_APPLICATIONS],
+  [SPARK_ENVIRONMENTS],
+  [SPARK_EXECUTORS],
+  [SPARK_JOBS],
+  [SPARK_SQLS],
+  [SPARK_STAGES],
+  [SPARK_STAGE_ATTEMPTS, SPARK_STAGES],
+  [SPARK_STAGE_ATTEMPT_TASKS, SPARK_STAGES],
+  [SPARK_STAGE_ATTEMPT_TASK_SUMMARYS, SPARK_STAGES],
+  [SPARK_THREADS, SPARK_EXECUTORS],
   [STATUSES],
   [SYNCS],
   [TAGS],

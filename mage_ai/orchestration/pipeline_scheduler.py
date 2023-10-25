@@ -16,7 +16,6 @@ from mage_ai.data_integrations.utils.scheduler import (
 from mage_ai.data_preparation.executors.executor_factory import ExecutorFactory
 from mage_ai.data_preparation.logging.logger import DictLogger
 from mage_ai.data_preparation.logging.logger_manager_factory import LoggerManagerFactory
-from mage_ai.data_preparation.models.block import Block
 from mage_ai.data_preparation.models.block.utils import (
     create_block_runs_from_dynamic_block,
     is_dynamic_block,
@@ -693,8 +692,6 @@ class PipelineScheduler:
                 _start_date=start_date,
             )
 
-            data_loader_block = self.pipeline.data_loader
-            data_exporter_block = self.pipeline.data_exporter
             executable_block_runs = [b.id for b in block_runs_to_schedule]
 
             self.logger.info(
@@ -714,8 +711,6 @@ class PipelineScheduler:
                     set(executable_block_runs),
                     tags,
                     runtime_arguments,
-                    data_loader_block,
-                    data_exporter_block,
                     self.pipeline_run.id,
                     variables,
                 )
@@ -733,8 +728,6 @@ class PipelineScheduler:
                 set(executable_block_runs),
                 tags,
                 runtime_arguments,
-                data_loader_block,
-                data_exporter_block,
                 self.pipeline_run.id,
                 variables,
             )
@@ -832,8 +825,6 @@ def run_integration_stream(
     executable_block_runs: Set[int],
     tags: Dict,
     runtime_arguments: Dict,
-    data_loader_block: Block,
-    data_exporter_block: Block,
     pipeline_run_id: int,
     variables: Dict,
 ):
@@ -849,13 +840,15 @@ def run_integration_stream(
         executable_block_runs (Set[int]): A set of executable block run IDs.
         tags (Dict): A dictionary of tags for logging.
         runtime_arguments (Dict): A dictionary of runtime arguments.
-        data_loader_block (Block): The data loader block.
-        data_exporter_block (Block): The data exporter block.
         pipeline_run_id (int): The ID of the pipeline run.
         variables (Dict): A dictionary of variables.
     """
     pipeline_run = PipelineRun.query.get(pipeline_run_id)
     pipeline_scheduler = PipelineScheduler(pipeline_run)
+    pipeline = pipeline_scheduler.pipeline
+    data_loader_block = pipeline.data_loader
+    data_exporter_block = pipeline.data_exporter
+
     tap_stream_id = stream['tap_stream_id']
     destination_table = stream.get('destination_table', tap_stream_id)
 
@@ -1293,19 +1286,23 @@ def cancel_block_runs_and_jobs(
 
 def check_sla():
     repo_pipelines = set(Pipeline.get_all_pipelines(get_repo_path()))
-    pipeline_schedules = \
-        set([
-            s.id
-            for s in PipelineSchedule.active_schedules(pipeline_uuids=repo_pipelines)
-        ])
+    pipeline_schedules_results = PipelineSchedule.active_schedules(pipeline_uuids=repo_pipelines)
+    pipeline_schedules_mapping = index_by(lambda x: x.id, pipeline_schedules_results)
+
+    pipeline_schedules = set([s.id for s in pipeline_schedules_results])
 
     pipeline_runs = PipelineRun.in_progress_runs(pipeline_schedules)
 
     if pipeline_runs:
         current_time = datetime.now(tz=pytz.UTC)
+
         # TODO: combine all SLA alerts in one notification
         for pipeline_run in pipeline_runs:
-            sla = pipeline_run.pipeline_schedule.sla
+            pipeline_schedule = pipeline_schedules_mapping.get(pipeline_run.pipeline_schedule_id)
+            if not pipeline_schedule:
+                continue
+
+            sla = pipeline_schedule.sla
             if not sla:
                 continue
             start_date = \
@@ -1314,7 +1311,7 @@ def check_sla():
                 else pipeline_run.created_at
             if compare(start_date + timedelta(seconds=sla), current_time) == -1:
                 # passed SLA for pipeline_run
-                pipeline = Pipeline.get(pipeline_run.pipeline_schedule.pipeline_uuid)
+                pipeline = Pipeline.get(pipeline_schedule.pipeline_uuid)
                 notification_sender = NotificationSender(
                     NotificationConfig.load(
                         config=merge_dict(
@@ -1543,12 +1540,16 @@ def schedule_with_event(event: Dict = None):
 
 
 def sync_schedules(pipeline_uuids: List[str]):
+    trigger_configs = []
+
     # Sync schedule configs from triggers.yaml to DB
     for pipeline_uuid in pipeline_uuids:
         pipeline_triggers = get_triggers_by_pipeline(pipeline_uuid)
-
         logger.debug(f'Sync pipeline trigger configs for {pipeline_uuid}: {pipeline_triggers}.')
         for pipeline_trigger in pipeline_triggers:
             if pipeline_trigger.envs and get_env() not in pipeline_trigger.envs:
                 continue
-            PipelineSchedule.create_or_update(pipeline_trigger)
+
+            trigger_configs.append(pipeline_trigger)
+
+    PipelineSchedule.create_or_update_batch(trigger_configs)

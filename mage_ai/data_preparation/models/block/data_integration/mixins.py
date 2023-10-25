@@ -53,6 +53,12 @@ class DataIntegrationMixin:
 
     @property
     def inputs_only_uuids(self) -> List[str]:
+        """
+        Get a list of UUIDs of input streams that are marked as 'input_only'.
+
+        Returns:
+            List[str]: List of UUIDs.
+        """
         arr = []
 
         for stream_id, settings in self.data_integration_inputs.items():
@@ -63,6 +69,12 @@ class DataIntegrationMixin:
 
     @property
     def data_integration_inputs(self) -> Dict:
+        """
+        Get the data integration inputs configuration for this block.
+
+        Returns:
+            Dict: Data integration inputs configuration.
+        """
         mapping = {}
 
         if self.configuration_data_integration:
@@ -77,6 +89,12 @@ class DataIntegrationMixin:
 
     @property
     def uuids_for_inputs(self) -> List[str]:
+        """
+        Get a list of UUIDs associated with data integration inputs.
+
+        Returns:
+            List[str]: List of UUIDs.
+        """
         arr = []
 
         for stream_id, settings in self.data_integration_inputs.items():
@@ -87,12 +105,27 @@ class DataIntegrationMixin:
 
     @property
     def upstream_block_uuids_for_inputs(self) -> List[str]:
+        """
+        Get a list of upstream block UUIDs associated with data integration inputs.
+
+        Returns:
+            List[str]: List of upstream block UUIDs.
+        """
         if self.configuration_data_integration:
             inputs_combined = self.uuids_for_inputs + self.inputs_only_uuids
 
             return [up_uuid for up_uuid in self.upstream_block_uuids if up_uuid in inputs_combined]
 
     def get_block_data_integration_settings_directory_path(self, block_uuid: str = None) -> str:
+        """
+        Get the directory path for storing data integration settings associated with a block.
+
+        Args:
+            block_uuid (str, optional): UUID of the block. Defaults to None.
+
+        Returns:
+            str: Directory path for data integration settings.
+        """
         if not self.pipeline:
             return
 
@@ -104,12 +137,27 @@ class DataIntegrationMixin:
         )
 
     def get_catalog_file_path(self, block_uuid: str = None) -> str:
+        """
+        Get the file path for the data integration catalog file associated with a block.
+
+        Args:
+            block_uuid (str, optional): UUID of the block. Defaults to None.
+
+        Returns:
+            str: File path for the catalog file.
+        """
         return os.path.join(
             self.get_block_data_integration_settings_directory_path(block_uuid),
             BLOCK_CATALOG_FILENAME,
         )
 
     def get_catalog_from_file(self) -> Dict:
+        """
+        Read and return the data integration catalog from a file.
+
+        Returns:
+            Dict: Data integration catalog.
+        """
         catalog_full_path = self.get_catalog_file_path()
 
         if os.path.exists(catalog_full_path):
@@ -122,6 +170,12 @@ class DataIntegrationMixin:
                         return
 
     async def get_catalog_from_file_async(self) -> Dict:
+        """
+        Asynchronously read and return the data integration catalog from a file.
+
+        Returns:
+            Dict: Data integration catalog.
+        """
         catalog_full_path = self.get_catalog_file_path()
 
         if os.path.exists(catalog_full_path):
@@ -133,7 +187,13 @@ class DataIntegrationMixin:
                     except json.decoder.JSONDecodeError:
                         return
 
-    def update_catalog_file(self, catalog: Dict = None) -> Dict:
+    def update_catalog_file(self, catalog: Dict = None) -> None:
+        """
+        Update the data integration catalog file with the provided catalog.
+
+        Args:
+            catalog (Dict, optional): Data integration catalog to be saved. Defaults to None.
+        """
         catalog_full_path = self.get_catalog_file_path()
 
         os.makedirs(os.path.dirname(catalog_full_path), exist_ok=True)
@@ -143,6 +203,13 @@ class DataIntegrationMixin:
                 f.write(json.dumps(catalog))
 
     def is_data_integration(self) -> bool:
+        """
+        Check if the block is a data integration block.
+        If the data_integration_in_batch_pipeline feature is not enabled, return False.
+
+        Returns:
+            bool: True if it's a data integration block, False otherwise.
+        """
         if not self.pipeline or not \
                 Project(self.pipeline.repo_config).is_feature_enabled(
                     FeatureUUID.DATA_INTEGRATION_IN_BATCH_PIPELINE,
@@ -185,6 +252,30 @@ class DataIntegrationMixin:
         partition: str = None,
         **kwargs,
     ) -> Dict:
+        """
+        Retrieve data integration settings for the current block.
+
+        Args:
+            data_integration_uuid_only (bool, optional): If True, retrieve only the data integration
+                UUID. Defaults to False.
+            dynamic_block_index (Union[int, None], optional): The index of the dynamic block, if
+                applicable. Defaults to None.
+            dynamic_upstream_block_uuids (Union[List[str], None], optional): List of upstream block
+                UUIDs, if applicable. Defaults to None.
+            from_notebook (bool, optional): Whether the request is made from a notebook context.
+                Defaults to False.
+            global_vars (Dict, optional): Global variables to be used in template rendering.
+                Defaults to None.
+            input_vars (List[Any], optional): Input variables for the block. Defaults to None.
+            partition (str, optional): Partition identifier, if applicable.
+                Defaults to None.
+            **kwargs: Additional keyword arguments.
+
+        Returns:
+            Dict: A dictionary containing the data integration settings, including catalog, config,
+            data_integration_uuid, selected_streams, and the appropriate key
+            (source or destination).
+        """
         if not self.is_data_integration():
             return
 
@@ -257,10 +348,14 @@ class DataIntegrationMixin:
                 **get_template_vars(),
             )
 
-            settings = yaml.safe_load(text)
+            settings = yaml.full_load(text)
 
             catalog = catalog_from_file
             config = settings.get('config')
+            if config:
+                for k, v in config.items():
+                    if v and isinstance(v, str):
+                        config[k] = v.strip()
             data_integration_uuid = settings.get(key)
         elif BlockLanguage.PYTHON == self.language:
             results_from_block_code = self.__execute_data_integration_block_code(
@@ -453,6 +548,48 @@ class DataIntegrationMixin:
 
         return input_vars_fetched, kwargs_vars, up_block_uuids
 
+    def __conditionally_fetch_inputs_for_decorated_functions(
+        self,
+        decorated_functions_arr: List[Callable],
+        input_vars_use: List,
+        dynamic_block_index: Union[int, None] = None,
+        dynamic_upstream_block_uuids: Union[List[str], None] = None,
+        fetched: bool = False,
+        from_notebook: bool = False,
+        global_vars: Dict = None,
+        input_vars: List = None,
+        partition: str = None,
+    ) -> [List, bool]:
+        if fetched:
+            return input_vars_use, fetched
+
+        fetched_already = False
+
+        block_function = decorated_functions_arr[0]
+        sig = signature(block_function)
+
+        num_args = sum(
+            arg.kind not in (Parameter.VAR_POSITIONAL, Parameter.VAR_KEYWORD)
+            for arg in sig.parameters.values()
+        )
+        num_inputs = len(input_vars_use or [])
+
+        if num_args > num_inputs:
+            input_vars_fetched, _kwargs_vars, _upstream_block_uuids = \
+                self.fetch_input_variables_and_catalog(
+                    input_vars,
+                    partition,
+                    global_vars,
+                    dynamic_block_index=dynamic_block_index,
+                    dynamic_upstream_block_uuids=dynamic_upstream_block_uuids,
+                    from_notebook=from_notebook,
+                )
+
+            fetched_already = True
+            input_vars_use = input_vars_fetched
+
+        return input_vars_use, fetched_already
+
     def __execute_data_integration_block_code(
         self,
         catalog_from_file: Dict = None,
@@ -487,6 +624,7 @@ class DataIntegrationMixin:
             self.type: self._block_decorator(decorated_functions),
         }
 
+        fetched = False
         input_vars_use = []
         if input_vars is not None:
             input_vars_use = input_vars
@@ -509,29 +647,20 @@ class DataIntegrationMixin:
             decorated_functions_arr = decorated_functions_destination
 
         if len(decorated_functions_arr) >= 1:
-            block_function = decorated_functions_arr[0]
-            sig = signature(block_function)
-
-            num_args = sum(
-                arg.kind not in (Parameter.VAR_POSITIONAL, Parameter.VAR_KEYWORD)
-                for arg in sig.parameters.values()
+            input_vars_use, fetched = self.__conditionally_fetch_inputs_for_decorated_functions(
+                decorated_functions_arr,
+                input_vars_use,
+                dynamic_block_index=dynamic_block_index,
+                dynamic_upstream_block_uuids=dynamic_upstream_block_uuids,
+                fetched=fetched,
+                from_notebook=from_notebook,
+                global_vars=global_vars,
+                input_vars=input_vars,
+                partition=partition,
             )
-            num_inputs = len(input_vars_use or [])
-
-            if num_args > num_inputs:
-                input_vars_fetched, _kwargs_vars, _upstream_block_uuids = \
-                    self.fetch_input_variables_and_catalog(
-                        input_vars,
-                        partition,
-                        global_vars,
-                        dynamic_block_index=dynamic_block_index,
-                        dynamic_upstream_block_uuids=dynamic_upstream_block_uuids,
-                        from_notebook=from_notebook,
-                    )
-                input_vars_use = input_vars_fetched
 
             self._data_integration[key] = self.execute_block_function(
-                block_function,
+                decorated_functions_arr[0],
                 input_vars_use,
                 from_notebook=from_notebook,
                 global_vars=global_vars,
@@ -548,6 +677,18 @@ class DataIntegrationMixin:
             return self._data_integration
 
         if decorated_functions_config:
+            input_vars_use, fetched = self.__conditionally_fetch_inputs_for_decorated_functions(
+                decorated_functions_config,
+                input_vars_use,
+                dynamic_block_index=dynamic_block_index,
+                dynamic_upstream_block_uuids=dynamic_upstream_block_uuids,
+                fetched=fetched,
+                from_notebook=from_notebook,
+                global_vars=global_vars,
+                input_vars=input_vars,
+                partition=partition,
+            )
+
             self._data_integration['config'] = self.execute_block_function(
                 decorated_functions_config[0],
                 input_vars_use,
@@ -563,6 +704,18 @@ class DataIntegrationMixin:
 
         if data_integration_uuid and config:
             if decorated_functions_selected_streams:
+                input_vars_use, fetched = self.__conditionally_fetch_inputs_for_decorated_functions(
+                    decorated_functions_selected_streams,
+                    input_vars_use,
+                    dynamic_block_index=dynamic_block_index,
+                    dynamic_upstream_block_uuids=dynamic_upstream_block_uuids,
+                    fetched=fetched,
+                    from_notebook=from_notebook,
+                    global_vars=global_vars,
+                    input_vars=input_vars,
+                    partition=partition,
+                )
+
                 self._data_integration['selected_streams'] = self.execute_block_function(
                     decorated_functions_selected_streams[0],
                     input_vars_use,
@@ -577,6 +730,18 @@ class DataIntegrationMixin:
                 self._data_integration['selected_streams'] = []
 
             if decorated_functions_catalog:
+                input_vars_use, fetched = self.__conditionally_fetch_inputs_for_decorated_functions(
+                    decorated_functions_catalog,
+                    input_vars_use,
+                    dynamic_block_index=dynamic_block_index,
+                    dynamic_upstream_block_uuids=dynamic_upstream_block_uuids,
+                    fetched=fetched,
+                    from_notebook=from_notebook,
+                    global_vars=global_vars,
+                    input_vars=input_vars,
+                    partition=partition,
+                )
+
                 self._data_integration['catalog'] = self.execute_block_function(
                     decorated_functions_catalog[0],
                     input_vars_use,

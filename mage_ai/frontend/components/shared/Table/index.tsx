@@ -1,5 +1,6 @@
 import NextLink from 'next/link';
 import React, {
+  createRef,
   useCallback,
   useEffect,
   useMemo,
@@ -22,6 +23,7 @@ import {
   MENU_WIDTH,
   SortDirectionEnum,
   SortQueryEnum,
+  getTableRowUuid,
 } from './constants';
 import { PADDING_UNITS, UNIT } from '@oracle/styles/units/spacing';
 import { SortAscending, SortDescending } from '@oracle/icons';
@@ -31,10 +33,11 @@ import {
   TableHeadStyle,
   TableRowStyle,
   TableStyle,
+  TableWrapperStyle,
 } from './index.style';
 import { goToWithQuery } from '@utils/routing';
+import { pushAtIndex, sortByKey } from '@utils/array';
 import { set } from '@storage/localStorage';
-import { sortByKey } from '@utils/array';
 
 export type ColumnType = {
   center?: boolean;
@@ -43,6 +46,7 @@ export type ColumnType = {
     columnIndex?: number;
     groupIndex?: number;
   }) => any | string;
+  rightAligned?: boolean;
   tooltipAppearAfter?: boolean;
   tooltipMessage?: string
   tooltipWidth?: number;
@@ -56,7 +60,9 @@ export type SortedColumnType = {
 
 type TableProps = {
   alignTop?: boolean;
+  apiForFetchingAfterAction?: any;
   borderCollapseSeparate?: boolean;
+  buildApiOptionsFromObject?: (object: any) => any[];
   buildLinkProps?: (rowIndex: number) => {
     as: string;
     href: string;
@@ -71,6 +77,7 @@ type TableProps = {
   columns?: ColumnType[];
   compact?: boolean;
   defaultSortColumnIndex?: number;
+  getObjectAtRowIndex?: (rowIndex: number) => any;
   getUUIDFromRow?: (row: React.ReactElement[]) => string;
   getUniqueRowIdentifier?: (row: React.ReactElement[]) => string;
   groupsInline?: boolean;
@@ -84,6 +91,7 @@ type TableProps = {
   onClickRow?: (index: number) => void;
   onDoubleClickRow?: (index: number) => void;
   onRightClickRow?: (index: number, event?: any) => void;
+  renderExpandedRowWithObject?: (index: number, object: any) => any;
   renderRightClickMenu?: (rowIndex: number) => any;
   renderRightClickMenuItems?: (rowIndex: number) => FlyoutMenuItemType[];
   rightClickMenuHeight?: number;
@@ -104,7 +112,9 @@ type TableProps = {
 
 function Table({
   alignTop,
+  apiForFetchingAfterAction,
   borderCollapseSeparate,
+  buildApiOptionsFromObject,
   buildLinkProps,
   buildRowProps,
   columnBorders,
@@ -113,6 +123,7 @@ function Table({
   columns = [],
   compact,
   defaultSortColumnIndex,
+  getObjectAtRowIndex,
   getUUIDFromRow,
   getUniqueRowIdentifier,
   groupsInline,
@@ -126,6 +137,7 @@ function Table({
   onClickRow,
   onDoubleClickRow,
   onRightClickRow,
+  renderExpandedRowWithObject,
   renderRightClickMenu,
   renderRightClickMenuItems,
   rightClickMenuHeight,
@@ -139,10 +151,28 @@ function Table({
   sortedColumn: sortedColumnInit,
   stickyFirstColumn,
   stickyHeader,
-  uuidColumnIndex,
   uuid,
+  uuidColumnIndex,
   wrapColumns,
 }: TableProps, ref) {
+  const [selectedRowIndexInternal, setSelectedRowIndexInternal] = useState<number>(null);
+  const onClickRowInternal = useCallback((rowIndex: number, event: any) => {
+    setSelectedRowIndexInternal(prev => prev === rowIndex ? null : rowIndex);
+  }, [
+    setSelectedRowIndexInternal,
+  ]);
+  const objectAtRowIndex = useMemo(() => selectedRowIndexInternal === null
+    ? null
+    : getObjectAtRowIndex?.(selectedRowIndexInternal),
+  [
+    getObjectAtRowIndex,
+    selectedRowIndexInternal,
+  ]);
+  const apiArguments = buildApiOptionsFromObject && objectAtRowIndex
+      ? buildApiOptionsFromObject(objectAtRowIndex)
+      : [null];
+  const { data } = apiForFetchingAfterAction?.(...apiArguments) || {};
+
   const [coordinates, setCoordinates] = useState<{
     x: number;
     y: number;
@@ -389,13 +419,21 @@ function Table({
         }
       };
 
+      const uuidRow = getTableRowUuid({ rowIndex, uuid });
       rowEl = (
         <TableRowStyle
           highlightOnHover={highlightRowOnHover}
-          key={`${uuid}-row-${rowIndex}`}
-          noHover={!(linkProps || onClickRow)}
+          id={uuidRow}
+          key={uuidRow}
+          noHover={!(linkProps || onClickRow || renderExpandedRowWithObject)}
           // @ts-ignore
-          onClick={onClickRow ? (e) => handleRowClick(rowIndex, e) : null}
+          onClick={(e) => {
+            if (onClickRow) {
+              handleRowClick(rowIndex, e);
+            }
+
+            onClickRowInternal(rowIndex, e);
+          }}
           onContextMenu={hasRightClickMenu
             ? (e) => {
               e.preventDefault();
@@ -466,8 +504,10 @@ function Table({
     isSelectedRow,
     noBorder,
     onClickRow,
+    onClickRowInternal,
     onDoubleClickRow,
     onRightClickRow,
+    renderExpandedRowWithObject,
     rowVerticalPadding,
     rowsSorted,
     setFocusedRowIndex,
@@ -479,8 +519,10 @@ function Table({
 
   const renderHeaderRow = useCallback(({
     groupIndex,
+    showEmptyHeaderCells,
   }: {
     groupIndex?: number;
+    showEmptyHeaderCells?: boolean;
   } = {}) => (
     <TableRowStyle noHover>
       {columns?.map((col, idx) => {
@@ -488,44 +530,69 @@ function Table({
           center,
           fitTooltipContentWidth,
           label,
+          rightAligned,
           tooltipAppearAfter,
           tooltipMessage,
           tooltipWidth,
           uuid: columnUUID,
         } = col || {};
         const isSortable = sortableColumnIndexes?.includes(idx);
-        const headerTextEl = (
-          <>
+        const textProps = {
+          bold: true,
+          cyan: sortedColumnIndex === idx,
+          leftAligned: true,
+          monospace: true,
+          muted: true,
+        };
+
+        const headerDisplayText = label
+          ? label({
+            columnIndex: idx,
+            groupIndex,
+          })
+          : columnUUID;
+
+        let headerTextEl;
+        if (showEmptyHeaderCells) {
+          headerTextEl = (
             <Text
-              bold
-              cyan={sortedColumnIndex === idx}
-              leftAligned
-              monospace
-              muted
+              {...textProps}
+              // @ts-ignore
+              style={{
+                opacity: 0,
+                height: 0,
+              }}
             >
-              {label ? label({
-                columnIndex: idx,
-                groupIndex,
-              }) : columnUUID}
+              {headerDisplayText}
             </Text>
-            {tooltipMessage && (
-              <Spacing ml="4px">
-                <Tooltip
-                  appearBefore={!tooltipAppearAfter}
-                  label={(
-                    <Text leftAligned>
-                      {tooltipMessage}
-                    </Text>
-                  )}
-                  lightBackground
-                  maxWidth={tooltipWidth}
-                  muted
-                  widthFitContent={fitTooltipContentWidth}
-                />
-              </Spacing>
-            )}
-          </>
-        );
+          );
+        } else {
+          headerTextEl = (
+            <>
+              <Text
+                {...textProps}
+              >
+                {headerDisplayText}
+              </Text>
+              {tooltipMessage && (
+                <Spacing ml="4px">
+                  <Tooltip
+                    appearBefore={!tooltipAppearAfter}
+                    label={(
+                      <Text leftAligned>
+                        {tooltipMessage}
+                      </Text>
+                    )}
+                    lightBackground
+                    maxWidth={tooltipWidth}
+                    muted
+                    widthFitContent={fitTooltipContentWidth}
+                  />
+                </Spacing>
+              )}
+            </>
+          );
+        }
 
         return (
           <TableHeadStyle
@@ -536,11 +603,18 @@ function Table({
             noBorder={noBorder}
             onMouseEnter={isSortable ? () => setHoveredColumnIdx(idx) : null}
             onMouseLeave={isSortable ? () => setHoveredColumnIdx(null) : null}
+            rowVerticalPadding={showEmptyHeaderCells ? 0 : null}
             sticky={stickyHeader}
           >
             <FlexContainer
               alignItems="center"
-              justifyContent={center ? 'center': 'flex-start'}
+              justifyContent={
+                (center && !rightAligned)
+                  ? 'center'
+                  : rightAligned
+                    ? 'flex-end'
+                    : 'flex-start'
+                }
             >
               {isSortable
                 ? (
@@ -645,7 +719,7 @@ function Table({
                     {els}
                   </>
                 </TableStyle>
-              </div>
+              </div>,
             );
           } else {
             acc.push(
@@ -680,6 +754,33 @@ function Table({
 
         return acc;
       }, []);
+    } else if (!!renderExpandedRowWithObject && selectedRowIndexInternal !== null) {
+      const rowsBefore = rowEls?.slice(0, selectedRowIndexInternal + 1);
+      const rowsAfter = rowEls?.slice(selectedRowIndexInternal + 1, rowEls?.length);
+
+      return (
+        <>
+          <TableStyle
+            borderCollapseSeparate={borderCollapseSeparate}
+            columnBorders={columnBorders}
+          >
+            {(columns?.length >= 1 && !noHeader) && renderHeaderRow()}
+            {rowsBefore}
+          </TableStyle>
+
+          {renderExpandedRowWithObject?.(selectedRowIndexInternal, data)}
+
+          <TableStyle
+            borderCollapseSeparate={borderCollapseSeparate}
+            columnBorders={columnBorders}
+          >
+            {(columns?.length >= 1 && !noHeader) && renderHeaderRow({
+              showEmptyHeaderCells: true,
+            })}
+            {rowsAfter}
+          </TableStyle>
+        </>
+      );
     }
 
     return (
@@ -695,20 +796,23 @@ function Table({
     borderCollapseSeparate,
     columnBorders,
     columns?.length,
+    data,
     groupsInline,
     noHeader,
+    renderExpandedRowWithObject,
     renderHeaderRow,
     rowEls,
     rowGroupHeaders,
     rowsGroupedByIndex,
+    selectedRowIndexInternal,
   ]);
 
   return (
-    <div style={{ position: 'relative' }}>
+    <TableWrapperStyle>
       {tableEl}
       {menu}
       {hasRightClickMenu && coordinates && rightClickMenu}
-    </div>
+    </TableWrapperStyle>
   );
 }
 

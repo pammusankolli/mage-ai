@@ -29,10 +29,12 @@ def get_secrets_dir(
     Returns:
         str: /path/to/secrets/directory
     """
-    secrets_dir = os.path.abspath(os.path.join(get_data_dir(), DEFAULT_MAGE_SECRETS_DIR))
+    secrets_dir = os.path.join(get_data_dir(), DEFAULT_MAGE_SECRETS_DIR)
     # Use expanduser path if the secrets dir hasn't been created yet
     if not os.path.exists(secrets_dir):
         secrets_dir = os.path.expanduser(secrets_dir)
+
+    secrets_dir = os.path.abspath(secrets_dir)
 
     if entity == Entity.GLOBAL:
         return secrets_dir
@@ -155,6 +157,7 @@ def get_secret_value(
     pipeline_uuid: str = None,
     project_uuid: str = None,
     repo_name: str = None,
+    **kwargs,
 ) -> Optional[str]:
     from mage_ai.orchestration.db.models.secrets import Secret
     key, key_uuid = _get_encryption_key(
@@ -189,29 +192,17 @@ def get_secret_value(
                     return fernet.decrypt(secret_legacy.value.encode('utf-8')).decode('utf-8')
                 except InvalidToken:
                     pass
+    if not kwargs.get('suppress_warning', False):
+        print(f'WARNING: Could not find secret value for secret {name}.')
 
-    print(f'WARNING: Could not find secret value for secret {name}.')
 
-
-def get_secret_value_db_safe(
-    name: str,
-    entity: Entity = Entity.GLOBAL,
-    pipeline_uuid: str = None,
-    project_uuid: str = None,
-    repo_name: str = None,
-) -> Optional[str]:
+def get_secret_value_db_safe(name: str, **kwargs) -> Optional[str]:
     """
     Calls get_secret_value only if the db has already been initialized.
     """
     from mage_ai.orchestration.db import db_connection
     if db_connection.session and db_connection.session.is_active:
-        return get_secret_value(
-            name,
-            entity=entity,
-            pipeline_uuid=pipeline_uuid,
-            project_uuid=project_uuid,
-            repo_name=repo_name,
-        )
+        return get_secret_value(name, **kwargs)
     else:
         return None
 
@@ -222,6 +213,7 @@ def delete_secret(
     entity: Entity = Entity.GLOBAL,
     pipeline_uuid: str = None,
     project_uuid: str = None,
+    **kwargs,
 ) -> None:
     from mage_ai.orchestration.db.models.secrets import Secret
     secret = None
@@ -242,7 +234,7 @@ def delete_secret(
 
     if secret:
         secret.delete()
-    else:
+    elif not kwargs.get('suppress_warning', False):
         print(f'WARNING: Could not find secret {name}')
 
 
