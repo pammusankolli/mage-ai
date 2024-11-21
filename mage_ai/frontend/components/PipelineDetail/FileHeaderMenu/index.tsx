@@ -1,14 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import Button from '@oracle/elements/Button';
 import ClickOutside from '@oracle/components/ClickOutside';
 import FlexContainer from '@oracle/components/FlexContainer';
+import FileHeaderMenuItem, { blankIcon } from './FileHeaderMenuItem';
 import FlyoutMenu from '@oracle/components/FlyoutMenu';
 import KernelOutputType from '@interfaces/KernelOutputType';
-import PipelineType from '@interfaces/PipelineType';
-import Spacing from '@oracle/elements/Spacing';
+import PipelineType, {
+  KERNEL_NAME_TO_PIPELINE_TYPE,
+  PipelineTypeEnum,
+} from '@interfaces/PipelineType';
 import Text from '@oracle/elements/Text';
+import useKernel from '@utils/models/kernel/useKernel';
 import useProject from '@utils/models/project/useProject';
-import { Check } from '@oracle/icons';
+import {
+  Check,
+  LayoutSplit,
+  LayoutStacked,
+} from '@oracle/icons';
+import { KernelNameEnum } from '@interfaces/KernelType';
 import {
   KEY_CODE_NUMBERS_TO_NUMBER,
   KEY_CODE_NUMBER_0,
@@ -21,63 +31,69 @@ import {
   KEY_CODE_ARROW_LEFT,
   KEY_CODE_ARROW_RIGHT,
 } from '@utils/hooks/keyboardShortcuts/constants';
-import { LinkStyle } from './index.style';
-import { PipelineTypeEnum } from '@interfaces/PipelineType';
-import { UNIT } from '@oracle/styles/units/spacing';
-import { ViewKeyEnum } from '@components/Sidekick/constants';
+import { SHARED_FILE_HEADER_BUTTON_PROPS } from './constants';
 import { isMac } from '@utils/os';
 import { randomNameGenerator } from '@utils/string';
 import { useKeyboardContext } from '@context/Keyboard';
 
 const NUMBER_OF_TOP_MENU_ITEMS: number = 3;
-const ICON_SIZE = 1.5 * UNIT;
+const INDEX_COMPUTE = 4;
 
 type FileHeaderMenuProps = {
   cancelPipeline: () => void;
   children?: any;
+  collapseAllBlockOutputs?: (state: boolean) => void;
   createPipeline: (data: any) => void;
+  disableAutosave?: boolean;
   executePipeline: () => void;
+  hideOutputOnExecution?: boolean;
   interruptKernel: () => void;
   isPipelineExecuting: boolean;
   pipeline: PipelineType;
   restartKernel: () => void;
   savePipelineContent: () => void;
   scrollTogether?: boolean;
-  setActiveSidekickView: (
-    newView: ViewKeyEnum,
-    pushHistory?: boolean,
-  ) => void;
   setMessages: (message: {
     [uuid: string]: KernelOutputType[];
   }) => void;
-  sideBySideEnabled?: boolean;
   setScrollTogether?: (prev: any) => void;
   setSideBySideEnabled?: (prev: any) => void;
+  sideBySideEnabled?: boolean;
+  toggleDisableAutosave?: () => void;
+  toggleHideOutputOnExecution?: () => void;
+  updatePipelineMetadata: (name: string, type?: string) => void;
 };
 
 function FileHeaderMenu({
   cancelPipeline,
   children,
+  collapseAllBlockOutputs,
   createPipeline,
+  disableAutosave,
   executePipeline,
+  hideOutputOnExecution,
   interruptKernel,
   isPipelineExecuting,
   pipeline,
   restartKernel,
   savePipelineContent,
   scrollTogether,
-  setActiveSidekickView,
   setMessages,
   setScrollTogether,
   setSideBySideEnabled,
   sideBySideEnabled,
+  toggleDisableAutosave,
+  toggleHideOutputOnExecution,
+  updatePipelineMetadata,
 }: FileHeaderMenuProps) {
   const [highlightedIndex, setHighlightedIndex] = useState(null);
   const refFile = useRef(null);
   const refRun = useRef(null);
   const refEdit = useRef(null);
   const refView = useRef(null);
+  const refCompute = useRef(null);
 
+  const { kernel } = useKernel({ pipelineType: pipeline?.type });
   const {
     featureEnabled,
     featureUUIDs,
@@ -85,6 +101,7 @@ function FileHeaderMenu({
 
   const fileItems = [
     {
+      beforeIcon: blankIcon,
       label: () => 'New standard pipeline',
       // @ts-ignore
       onClick: () => createPipeline({
@@ -95,6 +112,7 @@ function FileHeaderMenu({
       uuid: 'new_standard_pipeline',
     },
     {
+      beforeIcon: blankIcon,
       label: () => 'New streaming pipeline',
       // @ts-ignore
       onClick: () => createPipeline({
@@ -106,6 +124,7 @@ function FileHeaderMenu({
       uuid: 'new_streaming_pipeline',
     },
     {
+      beforeIcon: blankIcon,
       keyTextGroups: [[
         isMac() ? KEY_SYMBOL_META : KEY_SYMBOL_CONTROL,
         KEY_SYMBOL_S,
@@ -113,6 +132,12 @@ function FileHeaderMenu({
       label: () => 'Save pipeline',
       onClick: () => savePipelineContent(),
       uuid: 'save_pipeline',
+    },
+    {
+      beforeIcon: disableAutosave ? <Check /> : blankIcon,
+      label: () => 'Disable autosave',
+      onClick: toggleDisableAutosave,
+      uuid: 'Disable_autosave',
     },
   ];
   const runItems = useMemo(() => {
@@ -132,20 +157,20 @@ function FileHeaderMenu({
       //   uuid: 'Delete selected block',
       // },
       {
-        label: () => 'Interrupt kernel',
         keyTextGroups: [
           [KEY_SYMBOL_I],
           [KEY_SYMBOL_I],
         ],
+        label: () => 'Interrupt kernel',
         onClick: () => interruptKernel(),
         uuid: 'Interrupt kernel',
       },
       {
-        label: () => 'Restart kernel',
         keyTextGroups: [
           [KEY_CODE_NUMBERS_TO_NUMBER[KEY_CODE_NUMBER_0]],
           [KEY_CODE_NUMBERS_TO_NUMBER[KEY_CODE_NUMBER_0]],
         ],
+        label: () => 'Restart kernel',
         onClick: () => restartKernel(),
         uuid: 'Restart kernel',
       },
@@ -216,42 +241,118 @@ function FileHeaderMenu({
   const viewItems = useMemo(() => [
     {
       label: () => (
-        <FlexContainer alignItems="center">
-          {sideBySideEnabled ? <Check /> : <div style={{ width: ICON_SIZE}} />}
-
-          <Spacing mr={1} />
-
-          <Text noWrapping>
-            Show output next to code (beta)
-          </Text>
-        </FlexContainer>
+        <FileHeaderMenuItem
+          checked={hideOutputOnExecution}
+          label="Hide output on execution"
+        />
+      ),
+      onClick: toggleHideOutputOnExecution,
+      uuid: 'Hide output on execution',
+    },
+    // {
+    //   label: () => (
+    //     <FileHeaderMenuItem
+    //       label="Collapse all outputs"
+    //     />
+    //   ),
+    //   onClick: () => collapseAllBlockOutputs(true),
+    //   uuid: 'Collapse all outputs',
+    // },
+    // {
+    //   label: () => (
+    //     <FileHeaderMenuItem
+    //       label="Expand all outputs"
+    //     />
+    //   ),
+    //   onClick: () => collapseAllBlockOutputs(false),
+    //   uuid: 'Expand all outputs',
+    // },
+    {
+      label: () => (
+        <FileHeaderMenuItem
+          beforeIcon={<LayoutStacked success={!sideBySideEnabled} />}
+          label="Show output below block"
+        />
       ),
       onClick: () => {
-        setSideBySideEnabled(!sideBySideEnabled);
+        setSideBySideEnabled(false);
+      },
+      uuid: 'Show output below block',
+    },
+    {
+      label: () => (
+        <FileHeaderMenuItem
+          beforeIcon={<LayoutSplit success={sideBySideEnabled} />}
+          label="Show output next to code (beta)"
+        />
+      ),
+      onClick: () => {
+        setSideBySideEnabled(true);
       },
       uuid: 'Show output next to code',
     },
     {
       disabled: !sideBySideEnabled,
       label: () => (
-        <FlexContainer alignItems="center">
-          {scrollTogether ? <Check /> : <div style={{ width: ICON_SIZE}} />}
-
-          <Spacing mr={1} />
-
-          <Text disabled={!sideBySideEnabled} noWrapping>
-            Scroll output alongside code (beta)
-          </Text>
-        </FlexContainer>
+        <FileHeaderMenuItem
+          checked={scrollTogether}
+          label="Scroll output alongside code (beta)"
+          muted={!sideBySideEnabled}
+        />
       ),
       onClick: () => setScrollTogether(!scrollTogether),
       uuid: 'Scroll output alongside code',
     },
   ], [
+    hideOutputOnExecution,
     scrollTogether,
     setScrollTogether,
     setSideBySideEnabled,
     sideBySideEnabled,
+    toggleHideOutputOnExecution,
+  ]);
+
+  const computeItems = useMemo(() => {
+    const arr: {
+      label: () => string;
+      linkProps?: {
+        href: string;
+      };
+      onClick?: () => void;
+      uuid: string;
+    }[] = [
+      {
+        label: () => 'Open compute management',
+        linkProps: {
+          href: '/compute',
+        },
+        uuid: 'Open compute management',
+      },
+    ];
+
+    if (KernelNameEnum.PYTHON3 === kernel?.name) {
+      arr.push({
+        label: () => 'Switch to PySpark kernel',
+        onClick: () => updatePipelineMetadata?.(
+          pipeline?.name, KERNEL_NAME_TO_PIPELINE_TYPE[KernelNameEnum.PYSPARK],
+        ),
+        uuid: 'Switch to PySpark kernel',
+      });
+    } else if (KernelNameEnum.PYSPARK === kernel?.name) {
+      arr.push({
+        label: () => 'Switch to Python kernel',
+        onClick: () => updatePipelineMetadata?.(
+          pipeline?.name, KERNEL_NAME_TO_PIPELINE_TYPE[KernelNameEnum.PYTHON3],
+        ),
+        uuid: 'Switch to Python kernel',
+      });
+    }
+
+    return arr;
+  }, [
+    kernel,
+    pipeline,
+    updatePipelineMetadata,
   ]);
 
   const uuidKeyboard = 'FileHeaderMenu/index';
@@ -292,8 +393,9 @@ function FileHeaderMenu({
     >
       <FlexContainer>
         <div style={{ position: 'relative' }}>
-          <LinkStyle
-            highlighted={highlightedIndex === 0}
+          <Button
+            {...SHARED_FILE_HEADER_BUTTON_PROPS}
+            noBackground={highlightedIndex !== 0}
             onClick={() => setHighlightedIndex(val => val === 0 ? null : 0)}
             onMouseEnter={() => setHighlightedIndex(val => val !== null ? 0 : null)}
             ref={refFile}
@@ -301,7 +403,7 @@ function FileHeaderMenu({
             <Text>
               File
             </Text>
-          </LinkStyle>
+          </Button>
 
           <FlyoutMenu
             items={fileItems}
@@ -313,29 +415,9 @@ function FileHeaderMenu({
         </div>
 
         <div style={{ position: 'relative' }}>
-          <LinkStyle
-            highlighted={highlightedIndex === 1}
-            onClick={() => setHighlightedIndex(val => val === 1 ? null : 1)}
-            onMouseEnter={() => setHighlightedIndex(val => val !== null ? 1 : null)}
-            ref={refRun}
-          >
-            <Text>
-              Run
-            </Text>
-          </LinkStyle>
-
-          <FlyoutMenu
-            items={runItems}
-            onClickCallback={() => setHighlightedIndex(null)}
-            open={highlightedIndex === 1}
-            parentRef={refRun}
-            uuid="FileHeaderMenu/run_items"
-          />
-        </div>
-
-        <div style={{ position: 'relative' }}>
-          <LinkStyle
-            highlighted={highlightedIndex === 2}
+          <Button
+            {...SHARED_FILE_HEADER_BUTTON_PROPS}
+            noBackground={highlightedIndex !== 2}
             onClick={() => setHighlightedIndex(val => val === 2 ? null : 2)}
             onMouseEnter={() => setHighlightedIndex(val => val !== null ? 2 : null)}
             ref={refEdit}
@@ -343,7 +425,7 @@ function FileHeaderMenu({
             <Text>
               Edit
             </Text>
-          </LinkStyle>
+          </Button>
 
           <FlyoutMenu
             items={editItems}
@@ -354,10 +436,35 @@ function FileHeaderMenu({
           />
         </div>
 
-        {featureEnabled?.(featureUUIDs.NOTEBOOK_BLOCK_OUTPUT_SPLIT_VIEW) && (
+        <div style={{ position: 'relative' }}>
+          <Button
+            {...SHARED_FILE_HEADER_BUTTON_PROPS}
+            noBackground={highlightedIndex !== 1}
+            onClick={() => setHighlightedIndex(val => val === 1 ? null : 1)}
+            onMouseEnter={() => setHighlightedIndex(val => val !== null ? 1 : null)}
+            ref={refRun}
+          >
+            <Text>
+              Run
+            </Text>
+          </Button>
+
+          <FlyoutMenu
+            items={runItems}
+            onClickCallback={() => setHighlightedIndex(null)}
+            open={highlightedIndex === 1}
+            parentRef={refRun}
+            uuid="FileHeaderMenu/run_items"
+          />
+        </div>
+
+        {PipelineTypeEnum.INTEGRATION !== pipeline?.type
+          && featureEnabled?.(featureUUIDs.NOTEBOOK_BLOCK_OUTPUT_SPLIT_VIEW)
+          && (
           <div style={{ position: 'relative' }}>
-            <LinkStyle
-              highlighted={highlightedIndex === 3}
+            <Button
+              {...SHARED_FILE_HEADER_BUTTON_PROPS}
+              noBackground={highlightedIndex !== 3}
               onClick={() => setHighlightedIndex(val => val === 3 ? null : 3)}
               onMouseEnter={() => setHighlightedIndex(val => val !== null ? 3 : null)}
               ref={refView}
@@ -365,13 +472,37 @@ function FileHeaderMenu({
               <Text>
                 View
               </Text>
-            </LinkStyle>
+            </Button>
 
             <FlyoutMenu
               items={viewItems}
               onClickCallback={() => setHighlightedIndex(null)}
               open={highlightedIndex === 3}
               parentRef={refView}
+              uuid="FileHeaderMenu/viewItems"
+            />
+          </div>
+        )}
+
+        {featureEnabled?.(featureUUIDs.COMPUTE_MANAGEMENT) && (
+          <div style={{ position: 'relative' }}>
+            <Button
+              {...SHARED_FILE_HEADER_BUTTON_PROPS}
+              noBackground={highlightedIndex !== INDEX_COMPUTE}
+              onClick={() => setHighlightedIndex(val => val === INDEX_COMPUTE ? null : INDEX_COMPUTE)}
+              onMouseEnter={() => setHighlightedIndex(val => val !== null ? INDEX_COMPUTE : null)}
+              ref={refCompute}
+            >
+              <Text>
+                Compute
+              </Text>
+            </Button>
+
+            <FlyoutMenu
+              items={computeItems}
+              onClickCallback={() => setHighlightedIndex(null)}
+              open={highlightedIndex === INDEX_COMPUTE}
+              parentRef={refCompute}
               uuid="FileHeaderMenu/viewItems"
             />
           </div>

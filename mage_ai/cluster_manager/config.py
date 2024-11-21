@@ -1,6 +1,8 @@
+import os
 from dataclasses import dataclass, fields
-from typing import Dict
+from typing import Dict, List
 
+from mage_ai.settings.repo import get_repo_path
 from mage_ai.shared.config import BaseConfig
 from mage_ai.shared.hash import extract
 
@@ -26,6 +28,7 @@ class KubernetesWorkspaceConfig(WorkspaceConfig):
     namespace: str = None
     container_config: str = None
     ingress_name: str = None
+    pvc_retention_policy: str = None
     service_account_name: str = None
     storage_access_mode: str = None
     storage_class_name: str = None
@@ -53,16 +56,33 @@ class TerminationPolicy(BaseConfig):
 
 
 @dataclass
-class LifecycleConfig(BaseConfig):
-    termination_policy: TerminationPolicy = None
-    pre_start_script_path: str = None
+class PostStart(BaseConfig):
+    command: List[str] = None
+    hook_path: str = None
 
     @classmethod
     def parse_config(self, config: Dict = None) -> Dict:
-        termination_policy = config.get('termination_policy')
-        if termination_policy and type(termination_policy) is dict:
-            config['termination_policy'] = TerminationPolicy.load(
-                config=termination_policy
+        hook_path = config.get('hook_path')
+        if hook_path and not os.path.isabs(hook_path):
+            config['hook_path'] = os.path.join(
+                get_repo_path(root_project=True), hook_path
+            )
+
+        return config
+
+
+@dataclass
+class LifecycleConfig(BaseConfig):
+    termination_policy: TerminationPolicy = None
+    pre_start_script_path: str = None
+    post_start: PostStart = None
+
+    @classmethod
+    def parse_config(self, config: Dict = None) -> Dict:
+        pre_start_script_path = config.get('pre_start_script_path')
+        if pre_start_script_path and not os.path.isabs(pre_start_script_path):
+            config['pre_start_script_path'] = os.path.join(
+                get_repo_path(root_project=True), pre_start_script_path
             )
 
         return config
